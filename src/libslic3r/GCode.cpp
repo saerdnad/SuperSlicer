@@ -3533,8 +3533,6 @@ std::string GCode::extrude_loop(const ExtrusionLoop &original_loop, const std::s
     // extrude along the path
     std::string gcode;
     for (ExtrusionPaths::iterator path = paths.begin(); path != paths.end(); ++path) {
-//    description += ExtrusionLoop::role_to_string(loop.loop_role());
-//    description += ExtrusionEntity::role_to_string(path->role);
         path->simplify(SCALED_RESOLUTION);
         gcode += this->_extrude(*path, description, speed);
     }
@@ -3630,8 +3628,6 @@ std::string GCode::extrude_multi_path(const ExtrusionMultiPath &multipath, const
     // extrude along the path
     std::string gcode;
     for (ExtrusionPath path : multipath.paths) {
-//    description += ExtrusionLoop::role_to_string(loop.loop_role());
-//    description += ExtrusionEntity::role_to_string(path->role);
         path.simplify(SCALED_RESOLUTION);
         gcode += this->_extrude(path, description, speed);
     }
@@ -3873,7 +3869,7 @@ void GCode::_write(FILE* file, const char *what)
         
         //const char * gcode_pp = _post_process(what).c_str();
         std::string str_preproc{ what };
-        _post_process(str_preproc);
+        _post_process(str_preproc)
 
         const std::string str_ana = m_analyzer.process_gcode(str_preproc);
 
