@@ -40,9 +40,9 @@ group:Quality
 		setting:thin_walls_merge
 	end_line
 group:Overhangs
-	line:On perimeters
-		setting:sidetext_width$1:overhangs
-		setting:width$5:overhangs_width
+	line:threshold for
+		setting:label$bridge speed and fan:width$5:overhangs_width_speed
+		setting:label$bridge flow:width$5:overhangs_width
 	end_line
 	line:Extrusion direction
 		setting:sidetext_width$1:overhangs_reverse
@@ -104,7 +104,7 @@ group:Infill
 	end_line
 	line:Pattern
 		setting:label_width$5:label$_:fill_pattern
-		setting:label$Don't connect:infill_not_connected
+		setting:width$19:label$_:infill_connection
 	end_line
 	line:External patterns
 		setting:label_width$5:top_fill_pattern
@@ -224,8 +224,8 @@ group:Acceleration control (advanced)
 	setting:first_layer_acceleration
 	setting:default_acceleration
 group:Autospeed (advanced)
+	setting:label$Volumetric speed for Autospeed:max_volumetric_speed
 	setting:max_print_speed
-	setting:max_volumetric_speed
 
 page:Width & Flow:width
 group:Extrusion width
@@ -241,8 +241,9 @@ group:Extrusion width
 	recommended_extrusion_width_description
 group:Overlap
 	line:Perimeter overlap
+		setting:label$Default:perimeter_overlap
 		setting:label$External:external_perimeter_overlap
-		setting:label$Inner:perimeter_overlap
+		setting:label$Gap Fill:gap_fill_overlap
 	end_line
 	setting:infill_overlap
 	setting:bridge_overlap

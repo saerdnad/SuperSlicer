@@ -32,6 +32,7 @@ Fill* Fill::new_from_type(const InfillPattern type)
     case ipGyroid:              return new FillGyroid();
     case ipRectilinear:         return new FillRectilinear2();
 //  case ipRectilinear:         return new FillRectilinear();
+    case ipMonotonous:          return new FillMonotonous();
     case ipRectilinearWGapFill: return new FillRectilinear2WGapFill();
     case ipScatteredRectilinear:return new FillScatteredRectilinear();
     case ipLine:                return new FillLine();
@@ -146,7 +147,11 @@ std::pair<float, Point> Fill::_infill_direction(const Surface *surface) const
 
 void Fill::fill_surface_extrusion(const Surface *surface, const FillParams &params, ExtrusionEntitiesPtr &out) const {
     //add overlap & call fill_surface
-    Polylines polylines = this->fill_surface(surface, params);
+    Polylines polylines;
+    try {
+        polylines = this->fill_surface(surface, params);
+    } catch (InfillFailedException&) {
+    }
     if (polylines.empty())
         return;
     // ensure it doesn't over or under-extrude
@@ -590,10 +595,11 @@ Fill::do_gap_fill(const ExPolygons &gapfill_areas, const FillParams &params, Ext
     //    offset2_ex(gapfill_areas, double(-max / 2), double(+max / 2)),
     //    true);
     ExPolygons gapfill_areas_collapsed = offset2_ex(gapfill_areas, double(-min / 2), double(+min / 2));
+    const double minarea = scale_(params.config->gap_fill_min_area.get_abs_value(params.flow->width) ) * params.flow->scaled_width();
     for (const ExPolygon &ex : gapfill_areas_collapsed) {
         //remove too small gaps that are too hard to fill.
         //ie one that are smaller than an extrusion with width of min and a length of max.
-        if (ex.area() > scale_(params.flow->nozzle_diameter)*scale_(params.flow->nozzle_diameter) * 2) {
+        if (ex.area() > minarea) {
             MedialAxis{ ex, params.flow->scaled_width() * 2, params.flow->scaled_width() / 5, coord_t(params.flow->height) }.build(polylines_gapfill);
         }
     }
@@ -610,11 +616,11 @@ Fill::do_gap_fill(const ExPolygons &gapfill_areas, const FillParams &params, Ext
 #endif
 
         ExtrusionEntityCollection gap_fill = thin_variable_width(polylines_gapfill, erGapFill, *params.flow);
-        //set role if needed
-        if (params.role != erSolidInfill) {
+        //set role if needed (it will confuse the auto-speed, so don't change it from gap fill)
+        /*if (params.role != erSolidInfill) {
             ExtrusionSetRole set_good_role(params.role);
             gap_fill.visit(set_good_role);
-        }
+        }*/
         //move them into the collection
         if (!gap_fill.entities.empty()) {
             ExtrusionEntityCollection *coll_gapfill = new ExtrusionEntityCollection();
@@ -1005,6 +1011,7 @@ void Fill::connect_infill(Polylines &&infill_ordered, const ExPolygon &boundary_
 			[&boundary](const std::pair<size_t, size_t> &contour_point) {
 				return contour_point.first < boundary.size() && contour_point.second < boundary[contour_point.first].size();
 			}));
+        assert(boundary_data.size() == boundary_src.holes.size() + 1);
 #endif /* NDEBUG */
 	}
 
@@ -1058,6 +1065,20 @@ void Fill::connect_infill(Polylines &&infill_ordered, const ExPolygon &boundary_
 		}
 	}
 	std::sort(connections_sorted.begin(), connections_sorted.end(), [](const ConnectionCost& l, const ConnectionCost& r) { return l.cost < r.cost; });
+
+    //mark point as used depends of connection parameter
+    if (params.connection == icOuterShell) {
+        for (auto it = boundary_data.begin() + 1; it != boundary_data.end(); ++it) {
+            for (ContourPointData& pt : *it) {
+                pt.point_consumed = true;
+            }
+        }
+    } else if (params.connection == icHoles) {
+        for (ContourPointData& pt : boundary_data[0]) {
+            pt.point_consumed = true;
+        }
+    }
+    assert(boundary_data.size() == boundary_src.holes.size() + 1);
 
 	size_t idx_chain_last = 0;
 	for (ConnectionCost &connection_cost : connections_sorted) {

@@ -79,7 +79,6 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "bridge_acceleration",
         "bridge_fan_speed",
         "colorprint_heights",
-        "top_fan_speed",
         "complete_objects_sort",
         "cooling",
         "default_acceleration",
@@ -95,6 +94,8 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "extruder_clearance_radius",
         "extruder_colour",
         "extruder_offset",
+        "extruder_fan_offset"
+        "extruder_temperature_offset",
         "extrusion_multiplier",
         "fan_always_on",
         "fan_below_layer_time",
@@ -109,6 +110,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "first_layer_flow_ratio",
         "first_layer_speed",
         "first_layer_infill_speed",
+        "gap_fill_speed",
         "gcode_comments",
         "gcode_label_objects",
         "infill_acceleration",
@@ -152,8 +154,10 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
         "standby_temperature_delta",
         "start_gcode",
         "start_filament_gcode",
+        "thin_walls_speed",
         "time_estimation_compensation",
         "toolchange_gcode",
+        "top_fan_speed",
         "threads",
         "travel_speed",
         "use_firmware_retraction",
@@ -183,7 +187,7 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
             || opt_key == "draft_shield"
             || opt_key == "skirt_distance"
             || opt_key == "min_skirt_length"
-			|| opt_key == "complete_objects_one_skirt"
+            || opt_key == "complete_objects_one_skirt"
             || opt_key == "ooze_prevention"
             || opt_key == "wipe_tower_x"
             || opt_key == "wipe_tower_y"
@@ -227,17 +231,18 @@ bool Print::invalidate_state_by_config_options(const std::vector<t_config_option
             || opt_key == "filament_cooling_initial_speed"
             || opt_key == "filament_cooling_final_speed"
             || opt_key == "filament_ramming_parameters"
+            || opt_key == "filament_max_speed"
             || opt_key == "filament_max_volumetric_speed"
-			|| opt_key == "filament_use_skinnydip"        // skinnydip params start
-	        || opt_key == "filament_use_fast_skinnydip"
+            || opt_key == "filament_use_skinnydip"        // skinnydip params start
+            || opt_key == "filament_use_fast_skinnydip"
             || opt_key == "filament_skinnydip_distance"
             || opt_key == "filament_melt_zone_pause"
             || opt_key == "filament_cooling_zone_pause"
             || opt_key == "filament_toolchange_temp"
-			|| opt_key == "filament_enable_toolchange_temp"
-			|| opt_key == "filament_enable_toolchange_part_fan"
-			|| opt_key == "filament_toolchange_part_fan_speed"			    
-            || opt_key == "filament_dip_insertion_speed"    
+            || opt_key == "filament_enable_toolchange_temp"
+            || opt_key == "filament_enable_toolchange_part_fan"
+            || opt_key == "filament_toolchange_part_fan_speed"
+            || opt_key == "filament_dip_insertion_speed"
             || opt_key == "filament_dip_extraction_speed"    //skinnydip params end	
             || opt_key == "gcode_flavor"
             || opt_key == "high_current_on_filament_swap"
@@ -1367,17 +1372,17 @@ std::pair<PrintBase::PrintValidationError, std::string> Print::validate() const
             for (size_t i = 1; i < m_objects.size(); ++ i) {
                 const PrintObject       *object         = m_objects[i];
                 const SlicingParameters &slicing_params = object->slicing_parameters();
-            if (std::abs(slicing_params.first_print_layer_height - slicing_params0.first_print_layer_height) > EPSILON ||
-                std::abs(slicing_params.layer_height             - slicing_params0.layer_height            ) > EPSILON)
-                return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they have equal layer heights") };
-            if (slicing_params.raft_layers() != slicing_params0.raft_layers())
-                return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are printed over an equal number of raft layers") };
-            if (object->config().support_material_contact_distance_type != m_objects.front()->config().support_material_contact_distance_type
-                || object->config().support_material_contact_distance_top != m_objects.front()->config().support_material_contact_distance_top
-                || object->config().support_material_contact_distance_bottom != m_objects.front()->config().support_material_contact_distance_bottom)
-                return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are printed with the same support_material_contact_distance") };
-            if (! equal_layering(slicing_params, slicing_params0))
-                return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are sliced equally.") };
+                if (std::abs(slicing_params.first_print_layer_height - slicing_params0.first_print_layer_height) > EPSILON ||
+                    std::abs(slicing_params.layer_height             - slicing_params0.layer_height            ) > EPSILON)
+                    return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they have equal layer heights") };
+                if (slicing_params.raft_layers() != slicing_params0.raft_layers())
+                    return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are printed over an equal number of raft layers") };
+                if (object->config().support_material_contact_distance_type != m_objects.front()->config().support_material_contact_distance_type
+                    || object->config().support_material_contact_distance_top != m_objects.front()->config().support_material_contact_distance_top
+                    || object->config().support_material_contact_distance_bottom != m_objects.front()->config().support_material_contact_distance_bottom)
+                    return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are printed with the same support_material_contact_distance") };
+                if (! equal_layering(slicing_params, slicing_params0))
+                    return { PrintBase::PrintValidationError::pveWrongSettings,L("The Wipe Tower is only supported for multiple objects if they are sliced equally.") };
                 if (has_custom_layering) {
                     PrintObject::update_layer_height_profile(*object->model_object(), slicing_params, layer_height_profiles[i]);
                     if (*(layer_height_profiles[i].end()-2) > *(layer_height_profiles[tallest_object_idx].end()-2))

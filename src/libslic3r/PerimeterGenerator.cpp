@@ -38,8 +38,8 @@ namespace Slic3r {
 void PerimeterGenerator::process()
 {
     //set spacing
-    this->perimeter_flow.spacing_ratio = this->object_config->perimeter_overlap.get_abs_value(1);
-    this->ext_perimeter_flow.spacing_ratio = this->object_config->external_perimeter_overlap.get_abs_value(1);
+    this->perimeter_flow.spacing_ratio = this->config->perimeter_overlap.get_abs_value(1);
+    this->ext_perimeter_flow.spacing_ratio = this->config->external_perimeter_overlap.get_abs_value(1);
 
     // other perimeters
     this->_mm3_per_mm               = this->perimeter_flow.mm3_per_mm();
@@ -58,12 +58,16 @@ void PerimeterGenerator::process()
     // overhang perimeters
     this->_mm3_per_mm_overhang = this->overhang_flow.mm3_per_mm();
 
+    //gap fill
+    coord_t gap_fill_spacing = this->config->gap_fill_overlap.get_abs_value(this->perimeter_flow.scaled_spacing())  
+        + this->perimeter_flow.scaled_width() * (100 - this->config->gap_fill_overlap.value) / 100.;
+
     // solid infill
     coord_t solid_infill_spacing = this->solid_infill_flow.scaled_spacing();
 
     //infill / perimeter
     coord_t infill_peri_overlap = (coord_t)scale_(this->config->get_abs_value("infill_overlap", unscale<coordf_t>(perimeter_spacing + solid_infill_spacing) / 2));
-    // infill gap to add vs periemter (useful if using perimeter bonding)
+    // infill gap to add vs perimeter (useful if using perimeter bonding)
     coord_t infill_gap = 0;
 
 
@@ -93,12 +97,16 @@ void PerimeterGenerator::process()
     coord_t ext_min_spacing = (coord_t)( ext_perimeter_spacing2  * (1 - 0.05/*INSET_OVERLAP_TOLERANCE*/) );
     
     // prepare grown lower layer slices for overhang detection
-    if (this->lower_slices != NULL && this->config->overhangs) {
+    if (this->lower_slices != NULL && this->config->overhangs_width > 0) {
         // We consider overhang any part where the entire nozzle diameter is not supported by the
-        // lower layer, so we take lower slices and offset them by half the nozzle diameter used 
+        // lower layer, so we take lower slices and offset them by overhangs_width of the nozzle diameter used 
         // in the current layer
         double offset_val = double(scale_(config->overhangs_width.get_abs_value(nozzle_diameter))) - (float)(ext_perimeter_width / 2);
-        this->_lower_slices_p = offset(*this->lower_slices, offset_val);
+        this->_lower_slices_bridge_flow = offset(*this->lower_slices, offset_val);
+    }
+    if (this->lower_slices != NULL && this->config->overhangs_width_speed > 0) {
+        double offset_val = double(scale_(config->overhangs_width_speed.get_abs_value(nozzle_diameter))) - (float)(ext_perimeter_width / 2);
+        this->_lower_slices_bridge_speed = offset(*this->lower_slices, offset_val);
     }
 
     // have to grown the perimeters if mill post-process
@@ -240,16 +248,17 @@ void PerimeterGenerator::process()
 
                                     if (this->config->no_perimeter_unsupported_algo == npuaBridges) {
                                         ExPolygons unbridgeable = unsupported_filtered;
-                                        for (ExPolygon &expol : unbridgeable)expol.holes.clear();
+                                        for (ExPolygon &expol : unbridgeable)
+                                            expol.holes.clear();
                                         unbridgeable = diff_ex(unbridgeable, bridgeable_simplified);
                                         unbridgeable = offset2_ex(unbridgeable, -ext_perimeter_width*2, ext_perimeter_width*2);
                                         ExPolygons bridges_temp = intersection_ex(last, diff_ex(unsupported_filtered, unbridgeable));
-                                        //remove the overhangs section form the surface polygons
+                                        //remove the overhangs section from the surface polygons
                                         ExPolygons reference = last;
                                         last = diff_ex(last, unsupported_filtered);
                                         //ExPolygons no_bridge = diff_ex(offset_ex(unbridgeable, ext_perimeter_width * 3 / 2), last);
                                         //bridges_temp = diff_ex(bridges_temp, no_bridge);
-                                        unsupported_filtered = diff_ex(offset_ex(bridges_temp, ext_perimeter_width * 3 / 2), offset_ex(unbridgeable, ext_perimeter_width*2, jtSquare));
+                                        unsupported_filtered = diff_ex(offset_ex(bridges_temp, ext_perimeter_width * 3 / 2), offset_ex(unbridgeable, ext_perimeter_width * 2, jtSquare));
                                         unsupported_filtered = intersection_ex(unsupported_filtered, reference);
                                     } else {
                                         ExPolygons unbridgeable = intersection_ex(unsupported, diff_ex(unsupported_filtered, offset_ex(bridgeable_simplified, ext_perimeter_width / 2)));
@@ -538,7 +547,7 @@ void PerimeterGenerator::process()
                         }
 
                     } else {
-                        // If "detect thin walls" is not enabled, this paths will be entered, which 
+                        // If "overlapping_perimeters" is enabled, this paths will be entered, which 
                         // leads to overflows, as in prusa3d/Slic3r GH #32
                         next_onion = offset_ex(last, double( - good_spacing));
                     }
@@ -550,7 +559,7 @@ void PerimeterGenerator::process()
                         // (but still long enough to escape the area threshold) that gap fill
                         // won't be able to fill but we'd still remove from infill area
                         append(gaps, diff_ex(
-                            offset(last, -0.5f*good_spacing),
+                            offset(last, -0.5f * gap_fill_spacing),
                             offset(next_onion, 0.5f * good_spacing + 10)));  // safety offset
                 }
 
@@ -937,6 +946,69 @@ void PerimeterGenerator::process()
     } // for each island
 }
 
+template<typename LINE>
+ExtrusionPaths PerimeterGenerator::create_overhangs(LINE loop_polygons, ExtrusionRole role, bool is_external) const {
+    ExtrusionPaths paths;
+    double nozzle_diameter = this->print_config->nozzle_diameter.get_at(this->config->perimeter_extruder - 1);
+    if (this->config->overhangs_width.get_abs_value(nozzle_diameter) > this->config->overhangs_width_speed.get_abs_value(nozzle_diameter)) {
+        // get non-overhang paths by intersecting this loop with the grown lower slices
+        extrusion_paths_append(
+            paths,
+            intersection_pl(loop_polygons, this->_lower_slices_bridge_speed),
+            role,
+            is_external ? this->_ext_mm3_per_mm : this->_mm3_per_mm,
+            is_external ? this->ext_perimeter_flow.width : this->perimeter_flow.width,
+            (float)this->layer->height);
+
+        // get overhang paths by checking what parts of this loop fall 
+        // outside the grown lower slices
+        Polylines poly_speed = diff_pl(loop_polygons, this->_lower_slices_bridge_speed);
+
+        extrusion_paths_append(
+            paths,
+            intersection_pl(poly_speed, this->_lower_slices_bridge_flow),
+            erOverhangPerimeter,
+            is_external ? this->_ext_mm3_per_mm : this->_mm3_per_mm,
+            is_external ? this->ext_perimeter_flow.width : this->perimeter_flow.width,
+            (float)this->layer->height);
+
+        extrusion_paths_append(
+            paths,
+            diff_pl(poly_speed, this->_lower_slices_bridge_flow),
+            erOverhangPerimeter,
+            this->_mm3_per_mm_overhang,
+            this->overhang_flow.width,
+            this->overhang_flow.height);
+
+    } else {
+
+        // get non-overhang paths by intersecting this loop with the grown lower slices
+        extrusion_paths_append(
+            paths,
+            intersection_pl(loop_polygons, this->_lower_slices_bridge_flow),
+            role,
+            is_external ? this->_ext_mm3_per_mm : this->_mm3_per_mm,
+            is_external ? this->ext_perimeter_flow.width : this->perimeter_flow.width,
+            (float)this->layer->height);
+
+        // get overhang paths by checking what parts of this loop fall 
+        // outside the grown lower slices
+        extrusion_paths_append(
+            paths,
+            diff_pl(loop_polygons, this->_lower_slices_bridge_flow),
+            erOverhangPerimeter,
+            this->_mm3_per_mm_overhang,
+            this->overhang_flow.width,
+            this->overhang_flow.height);
+    }
+
+    // reapply the nearest point search for starting point
+    // We allow polyline reversal because Clipper may have randomly reversed polylines during clipping.
+    if(!paths.empty())
+        chain_and_reorder_extrusion_paths(paths, &paths.front().first_point());
+    return paths;
+}
+
 ExtrusionEntityCollection PerimeterGenerator::_traverse_loops(
     const PerimeterGeneratorLoops &loops, ThickPolylines &thin_walls) const
 {
@@ -966,31 +1038,9 @@ ExtrusionEntityCollection PerimeterGenerator::_traverse_loops(
         
         // detect overhanging/bridging perimeters
         ExtrusionPaths paths;
-        if (this->config->overhangs && this->layer->id() > 0
+        if ( this->config->overhangs_width_speed > 0 && this->layer->id() > 0
             && !(this->object_config->support_material && this->object_config->support_material_contact_distance_type.value == zdNone)) {
-            // get non-overhang paths by intersecting this loop with the grown lower slices
-            extrusion_paths_append(
-                paths,
-                intersection_pl(loop.polygon, this->_lower_slices_p),
-                role,
-                is_external ? this->_ext_mm3_per_mm           : this->_mm3_per_mm,
-                is_external ? this->ext_perimeter_flow.width  : this->perimeter_flow.width,
-                (float) this->layer->height);
-            
-            // get overhang paths by checking what parts of this loop fall 
-            // outside the grown lower slices (thus where the distance between
-            // the loop centerline and original lower slices is >= half nozzle diameter
-            extrusion_paths_append(
-                paths,
-                diff_pl(loop.polygon, this->_lower_slices_p),
-                erOverhangPerimeter,
-                this->_mm3_per_mm_overhang,
-                this->overhang_flow.width,
-                this->overhang_flow.height);
-            
-            // reapply the nearest point search for starting point
-            // We allow polyline reversal because Clipper may have randomly reversed polylines during clipping.
-            chain_and_reorder_extrusion_paths(paths, &paths.front().first_point());
+            paths = this->create_overhangs(loop.polygon, role, is_external);
         } else {
             ExtrusionPath path(role);
             path.polyline   = loop.polygon.split_at_first_point();
@@ -1418,35 +1468,9 @@ PerimeterGenerator::_extrude_and_cut_loop(const PerimeterGeneratorLoop &loop, co
         }
 
         // detect overhanging/bridging perimeters
-        if (this->config->overhangs && this->layer->id() > 0
+        if ( this->config->overhangs_width_speed > 0 && this->layer->id() > 0
             && !(this->object_config->support_material && this->object_config->support_material_contact_distance_type.value == zdNone)) {
-            ExtrusionPaths paths;
-            // get non-overhang paths by intersecting this loop with the grown lower slices
-            extrusion_paths_append(
-                paths,
-                intersection_pl(initial_polyline, this->_lower_slices_p),
-                role,
-                is_external ? this->_ext_mm3_per_mm : this->_mm3_per_mm,
-                is_external ? this->ext_perimeter_flow.width : this->perimeter_flow.width,
-                (float) this->layer->height);
-
-            // get overhang paths by checking what parts of this loop fall 
-            // outside the grown lower slices (thus where the distance between
-            // the loop centerline and original lower slices is >= half nozzle diameter
-            extrusion_paths_append(
-                paths,
-                diff_pl(initial_polyline, this->_lower_slices_p),
-                erOverhangPerimeter,
-                this->_mm3_per_mm_overhang,
-                this->overhang_flow.width,
-                this->overhang_flow.height);
-
-            // reapply the nearest point search for starting point
-            // We allow polyline reversal because Clipper may have randomly
-            // reversed polylines during clipping.
-            if (!paths.empty())
-                chain_and_reorder_extrusion_paths(paths, &paths.front().first_point());
-             
+            ExtrusionPaths paths = this->create_overhangs(initial_polyline, role, is_external);
             
             if (direction.length() > 0) {
                 Polyline direction_polyline;

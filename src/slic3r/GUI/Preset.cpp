@@ -439,8 +439,9 @@ const std::vector<std::string>& Preset::print_options()
         "avoid_crossing_perimeters", 
         "avoid_crossing_not_first_layer",
         "thin_perimeters", "thin_perimeters_all",
-        "thin_walls", "overhangs", 
+        "thin_walls",
         "overhangs_width",
+		"overhangs_width_speed", 
         "overhangs_reverse",
         "overhangs_reverse_threshold",
         "seam_position", 
@@ -472,6 +473,7 @@ const std::vector<std::string>& Preset::print_options()
         "bridge_speed",
         "gap_fill",
         "gap_fill_min_area",
+        "gap_fill_overlap",
         "gap_fill_speed",
         "travel_speed", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
         "bridge_acceleration", "first_layer_acceleration", "default_acceleration", 
@@ -523,15 +525,15 @@ const std::vector<std::string>& Preset::print_options()
         "compatible_printers", "compatible_printers_condition", "inherits", 
         "infill_dense", "infill_dense_algo",
         "no_perimeter_unsupported_algo",
-        "support_material_solid_first_layer"
-        , "exact_last_layer_height"
-        , "perimeter_loop"
-        , "perimeter_loop_seam"
-        , "seam_travel"
-        , "infill_not_connected"
-        , "first_layer_infill_speed"
-        , "thin_walls_min_width"
-        , "thin_walls_overlap",
+        "support_material_solid_first_layer",
+        "exact_last_layer_height",
+        "perimeter_loop",
+        "perimeter_loop_seam",
+        "seam_travel",
+        "infill_connection",
+        "first_layer_infill_speed",
+        "thin_walls_min_width",
+        "thin_walls_overlap",
         "thin_walls_speed"
         , "model_precision"
         , "curve_smoothing_precision"
@@ -539,6 +541,8 @@ const std::vector<std::string>& Preset::print_options()
         , "curve_smoothing_angle_convex"
         , "curve_smoothing_angle_concave",
         "print_extrusion_multiplier",
+        "print_retract_length",
+        "print_temperature",
         "external_perimeter_cut_corners",
         "external_perimeter_overlap",
         "perimeter_bonding",
@@ -555,7 +559,9 @@ const std::vector<std::string>& Preset::print_options()
 const std::vector<std::string>& Preset::filament_options()
 {    
     static std::vector<std::string> s_opts {
-        "filament_colour", "filament_diameter", "filament_type", "filament_soluble", "filament_notes", "filament_max_volumetric_speed",
+        "filament_colour", "filament_diameter", "filament_type", "filament_soluble", "filament_notes",
+        "filament_max_speed",
+        "filament_max_volumetric_speed",
         "filament_max_wipe_tower_speed",
         "extrusion_multiplier", "filament_density", "filament_cost", "filament_loading_speed", "filament_loading_speed_start", "filament_load_time",
         "filament_unloading_speed", "filament_toolchange_delay", "filament_unloading_speed_start", "filament_unload_time", "filament_cooling_moves",
@@ -624,6 +630,9 @@ const std::vector<std::string>& Preset::printer_options()
         	"machine_min_extruding_rate", "machine_min_travel_rate",
             "machine_max_jerk_x", "machine_max_jerk_y", "machine_max_jerk_z", "machine_max_jerk_e",
             "thumbnails",
+            "thumbnails_color",
+            "thumbnails_custom_color",
+            "thumbnails_with_bed",
             "time_estimation_compensation",
             "print_machine_envelope",
             "fan_speedup_time",
@@ -744,7 +753,12 @@ const std::vector<std::string>& Preset::sla_printer_options()
             "min_initial_exposure_time", "max_initial_exposure_time",
             "print_host", "printhost_apikey", "printhost_cafile",
             "printer_notes",
-            "inherits"
+            "inherits",
+            "thumbnails",
+            "thumbnails_color",
+            "thumbnails_custom_color",
+            "thumbnails_with_bed",
+            "thumbnails_with_support"
         };
     }
     return s_opts;
